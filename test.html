@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp API</title>
+</head>
+<body>
+    <h1>Kirim Pesan ke Grup WhatsApp</h1>
+    <form id="messageForm">
+        <input type="text" id="groupId" placeholder="ID Grup" required>
+        <input type="text" id="message" placeholder="Pesan" required>
+        <button type="submit">Kirim Pesan</button>
+    </form>
+
+    <script>
+        document.getElementById('messageForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+            
+            const groupId = document.getElementById('groupId').value;
+            const message = document.getElementById('message').value;
+
+            fetch('http://localhost:3000/send-message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ groupId, message })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Pesan berhasil dikirim!');
+                } else {
+                    alert('Gagal mengirim pesan: ' + data.error);
+                }
+            })
+            .catch(error => console.error('Terjadi kesalahan:', error));
+        });
+    </script>
+</body>
+</html>
