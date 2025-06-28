@@ -1,218 +1,404 @@
 // bot.js
-const { Client } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal'); // Mengimpor qrcode-terminal
+const express = require('express');
+const http = require('http');
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
 const ExcelJS = require('exceljs');
-const db = require('./database');
 const fs = require('fs');
 const path = require('path');
 
+// Import database dari file terpisah
+const db = require('./database');
+
+// Inisialisasi Express dan Socket.IO
+const app = express();
+const server = http.createServer(app);
+
+// Konfigurasi direktori
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const DOWNLOAD_DIR = path.join('/var/www/html/whatsapp-bot/download');
+
+// Buat direktori jika belum ada
+fs.mkdirSync(PUBLIC_DIR, { recursive: true });
+fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
+
+// Serve static files
+app.use(express.static(PUBLIC_DIR));
+
+// Route untuk halaman QR
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'qr.html'));
+});
+
+// Route untuk download Excel
+app.get('/download/:filename', (req, res) => {
+    const filename = req.params.filename;
+    const filePath = path.join(DOWNLOAD_DIR, filename);
+
+    // Cek apakah file ada
+    if (fs.existsSync(filePath)) {
+        res.download(filePath, filename, (err) => {
+            if (err) {
+                res.status(500).send('Tidak dapat mengunduh file');
+            }
+
+            // Opsional: Hapus file setelah didownload
+            // fs.unlinkSync(filePath);
+        });
+    } else {
+        res.status(404).send('File tidak ditemukan');
+    }
+});
+
+// Lokasi browser yang mungkin
+const possibleBrowserPaths = [
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable'
+];
+
+// Fungsi untuk menemukan browser
+function findBrowserPath() {
+    for (const browserPath of possibleBrowserPaths) {
+        if (fs.existsSync(browserPath)) {
+            console.log(`Browser found: ${browserPath}`);
+            return browserPath;
+        }
+    }
+    console.error('No browser found!');
+    return null;
+}
+
 // Inisialisasi client WhatsApp
-const client = new Client();
+const client = new Client({
+    puppeteer: {
+        executablePath: findBrowserPath(),
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-dev-shm-usage'
+        ]
+    },
+    authStrategy: new LocalAuth({
+        dataPath: path.join(__dirname, 'session')
+    }),
+    webVersion: '2.2410.1',
+    webVersionCache: {
+        type: 'none'
+    }
+});
 
-// Simulasi: Nama pengirim dan nomor telepon
-const senderName = 'Nama Pengirim'; // Anda bisa mengupdate ini sesuai keperluan
-const senderPhone = '+62123456789'; // Masukkan nomor telepon pengirim (bisa juga ambil dari message.from)
-
-// Event ketika QR Code dihasilkan
+// Koneksi Socket.IO
+// Debugging tambahan
+console.log('Initializing WhatsApp Client...');
+// Event untuk QR Code
 client.on('qr', (qr) => {
-    // Tampilkan QR Code ke terminal menggunakan qrcode-terminal
-    qrcode.generate(qr, { small: true });  // Menampilkan QR Code dengan ukuran kecil
+    console.log('\n===== QR CODE =====');
+    console.log('Scan QR Code di bawah ini:');
+
+    // Tampilkan QR di terminal
+    qrcode.generate(qr, { small: true });
+
+    console.log('\nCaranya:');
+    console.log('1. Buka WhatsApp di HP');
+    console.log('2. Pilih Setelan > Sambungkan Perangkat');
+    console.log('3. Scan QR Code di atas');
+    console.log('==================\n');
+
 });
 
-// Event ketika bot sudah siap
-client.on('ready', () => {
-    console.log('Bot is ready!');
+
+
+// Event autentikasi
+client.on('authenticated', (session) => {
+    console.log('✅ Autentikasi berhasil');
 });
 
-// Fungsi untuk menambahkan pengeluaran
+// Event error
+client.on('auth_failure', (msg) => {
+    console.error('❌ Autentikasi Gagal:', msg);
+});
+
+// Fungsi Utilitas
+
+// Fungsi untuk menambah pengeluaran
 function addExpense(name, category, price) {
     return new Promise((resolve, reject) => {
         const sql = 'INSERT INTO expenses (name, category, price, created_at) VALUES (?, ?, ?, ?)';
-        const createdAt = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }); // Menggunakan waktu Indonesia
-        db.run(sql, [name, category, price, createdAt], function(err) {
+        const createdAt = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+        db.run(sql, [name, category, price, createdAt], function (err) {
             if (err) {
                 return reject(err);
             }
-            resolve(this.lastID); // Mengembalikan ID terakhir yang dimasukkan
+            resolve(this.lastID);
         });
     });
 }
 
-// Fungsi untuk menambahkan pengirim
+// Fungsi untuk menambah pengirim
 function addSender(name, phone) {
     return new Promise((resolve, reject) => {
-        const sql = 'INSERT INTO senders (name, phone) VALUES (?, ?)';
-        db.run(sql, [name, phone], function(err) {
+        const sql = 'INSERT OR IGNORE INTO senders (name, phone, created_at) VALUES (?, ?, ?)';
+        const createdAt = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+        db.run(sql, [name, phone, createdAt], function (err) {
             if (err) {
                 return reject(err);
             }
-            resolve(this.lastID); // Mengembalikan ID terakhir yang dimasukkan
+            resolve(this.lastID);
         });
     });
 }
 
-// Helper function to parse price
+// Fungsi parsing harga
 function parsePrice(priceString) {
-    priceString = priceString.replace(/\s/g, ''); // Menghapus spasi
-    let price = parseFloat(priceString.replace(/[^\d]/g, '')); // Menghapus karakter non-digit
+    priceString = priceString.replace(/\s/g, '');
+    let price = parseFloat(priceString.replace(/[^\d]/g, ''));
     if (priceString.includes('rb')) {
-        price *= 1000;  // Kalikan dengan 1000 jika ada 'rb'
+        price *= 1000;
     } else if (priceString.includes('k')) {
-        price *= 1000;  // Kalikan dengan 1000 jika ada 'k'
+        price *= 1000;
     }
-    // Pastikan output harga adalah angka bulat
     return Math.round(price);
 }
 
-// Fungsi untuk menggenerate Excel
+// Fungsi untuk menentukan kategori
+function determineCategory(name) {
+    const categoryMap = {
+        'makan': 'Makanan',
+        'minum': 'Makanan',
+        'gojek': 'Transport',
+        'grab': 'Transport',
+        'maxim': 'Transport',
+        'bensin': 'Transport',
+        'token': 'Token Listrik',
+        'listrik': 'Token Listrik',
+        'rokok': 'Sahabat Sebat',
+        'internet': 'Entertaiment',
+        'pulsa': 'Komunikasi',
+        'kuota': 'Komunikasi'
+    };
+
+    for (const [keyword, category] of Object.entries(categoryMap)) {
+        if (name.toLowerCase().includes(keyword)) return category;
+    }
+
+    return 'Lain-lain';
+}
+
+// Fungsi generate Excel
 async function generateExcel() {
-    const filePath = path.join('/var/www/html/whatsapp-bot/download', 'Pengeluaran.xlsx');  // Menyimpan di folder yang ditentukan
+    const fileName = `Pengeluaran_${Date.now()}.xlsx`;
+    const filePath = path.join(DOWNLOAD_DIR, fileName);
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Pengeluaran');
 
-    // Judul bulan dan detail pengirim
-    const monthYear = new Intl.DateTimeFormat('id-ID', { year: 'numeric', month: 'long' }).format(new Date());
-    worksheet.mergeCells('A1:D1');
-    worksheet.getCell('A1').value = `Daftar Pengeluaran Bulan ${monthYear}`;
-    worksheet.getCell('A1').font = { bold: true, size: 14 };
-    worksheet.getCell('A1').alignment = { horizontal: 'center' };
-
-    worksheet.getCell('A2').value = `Nama Pengirim: ${senderName}`;
-    worksheet.getCell('A3').value = `Nomor Telepon: ${senderPhone}`;
-    worksheet.getCell('A2').font = { italic: true };
-    worksheet.getCell('A3').font = { italic: true };
-
-    worksheet.addRow(); // Baris kosong
-
-    // Menambahkan header dengan format yang lebih baik
+    // Setup worksheet
     worksheet.columns = [
-        { header: 'Tanggal dan Waktu', key: 'created_at', width: 25 },
+        { header: 'Tanggal', key: 'created_at', width: 25 },
         { header: 'Nama', key: 'name', width: 30 },
-        { header: 'Kategori', key: 'category', width: 30 },
+        { header: 'Kategori', key: 'category', width: 20 },
         { header: 'Harga', key: 'price', width: 15 }
     ];
 
     return new Promise((resolve, reject) => {
-        db.all('SELECT * FROM expenses', [], (err, rows) => {
+        db.all('SELECT * FROM expenses ORDER BY created_at DESC', [], async (err, rows) => {
             if (err) {
                 return reject(err);
             }
-            
-            let total = 0; // Inisialisasi variabel total
 
+            let totalPengeluaran = 0;
+
+            // Tambahkan data
             rows.forEach(exp => {
-                // Menambahkan total harga
-                total += exp.price;
-
-                // Menambahkan setiap baris ke worksheet
                 worksheet.addRow({
-                    created_at: exp.created_at, // Tambahkan tanggal dan waktu
+                    created_at: exp.created_at,
                     name: exp.name,
                     category: exp.category,
                     price: exp.price
                 });
+                totalPengeluaran += exp.price;
             });
 
-            // Menambahkan baris total di bagian bawah
-            worksheet.addRow({ name: 'Total', price: total });
-            
-            // Menambahkan styling untuk header dan total
-            worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFF' } }; // Header bold dan putih
-            worksheet.getRow(1).fill = { // Warna latar belakang header
-                type: 'pattern',
-                pattern: 'solid',
-                fgColor: { argb: '4F81BD' }
-            };
-            worksheet.getColumn('A').alignment = { horizontal: 'center' }; // Rata tengah kolom
-            worksheet.getColumn('B').alignment = { horizontal: 'left' };
-            worksheet.getColumn('C').alignment = { horizontal: 'left' };
-            worksheet.getColumn('D').alignment = { horizontal: 'right' };
+            // Tambahkan total
+            worksheet.addRow({
+                name: 'TOTAL PENGELUARAN',
+                price: totalPengeluaran
+            });
 
-            // Styling untuk baris total
-            const totalRow = worksheet.lastRow;
-            totalRow.font = { bold: true };
-            totalRow.getCell(4).numberFormat = '0'; // Format angka
+            // Styling
+            worksheet.getRow(1).font = { bold: true };
+            worksheet.columns.forEach(column => {
+                column.alignment = { horizontal: 'left' };
+            });
 
-            workbook.xlsx.writeFile(filePath)
-                .then(() => resolve(filePath))
-                .catch(reject);
+            // Tulis file
+            await workbook.xlsx.writeFile(filePath);
+
+            // Resolve dengan nama file untuk membuat URL
+            resolve(fileName);
         });
     });
 }
 
-// Mendengarkan pesan dari WhatsApp
+// Event listener untuk pesan
 client.on('message', async message => {
-    const senderPhone = message.from; // Mengambil nomor telepon dari pengirim
-    const senderName = message.sender.pushname || 'Tanpa Nama'; // Mengambil nama pengirim
+    // Hindari memproses pesan dari status atau sistem
+    if (message.isStatus) return;
 
-    // Simpan pengirim ke tabel
-    await addSender(senderName, senderPhone);
-    
-    // Cek apakah pesan datang dari grup
-    if (message.from.includes('@g')) { // ID grup akan mengandung '@g'
-        const text = message.body.toLowerCase();
-        
-        // Cek format pesan
-        const parts = text.split(" ");
+    const senderPhone = message.from;
+    const senderName = message.sender.pushname || 'Tanpa Nama';
+
+    // Simpan pengirim ke database
+    try {
+        await addSender(senderName, senderPhone);
+    } catch (error) {
+        console.error('Gagal menyimpan pengirim:', error);
+    }
+
+    // Normalisasi pesan
+    const text = message.body.toLowerCase().trim();
+    const parts = text.split(/\s+/);
+
+    // Proses untuk pesan di grup
+    if (message.from.includes('@g.us')) {
+        // Cek format: nama_barang harga
         if (parts.length === 2) {
             const name = parts[0];
-            const price = parsePrice(parts[1]); // Parsing harga dengan fungsi baru
-
-            // Kategorikan barang
-            let category;
-            if (name.includes("makan") || name.includes("minum")) {
-                category = "Makanan";
-            } else if (name.includes("gojek") || name.includes("maxim") || name.includes("grab")) {
-                category = "Transport";
-            } else if (name.includes("libur")) {
-                category = "Liburan";
-            } else if (name.includes("token")) {
-                category = "Token Listrik";
-            } else if (name.includes("rokok")) {
-                category = "Sahabat Sebat";
-            } else if (name.includes("internet")) {
-                category = "Entertaiment";
-            } else {
-                category = "Lain-lain"; // Kategori default
-            }
-            
-            if (!isNaN(price) && price > 0) {
-                await addExpense(name, category, price);
-                client.sendMessage(message.from, `Pengeluaran telah dicatat: ${name}, Kategori: ${category}, Harga: ${price} IDR. HEMAT KONTOLL!!!`);
-                return; // Keluar agar tidak melanjutkan proses ke bagian download
-            }
-        }
-
-        // Periksa jika ada permintaan untuk mengunduh file Excel
-        if (text === "download pengeluaran") {
             try {
-                const filePath = await generateExcel();
-                const url = `http://dastrevas.com/download/${path.basename(filePath)}`; // Ganti dengan URL yang sesuai
-                client.sendMessage(message.from, `File Excel telah dibuat! Anda dapat mendownloadnya di: ${url}`);
+                const price = parsePrice(parts[1]);
+
+                if (!isNaN(price) && price > 0) {
+                    const category = determineCategory(name);
+
+                    // Tambah pengeluaran
+                    await addExpense(name, category, price);
+
+                    // Kirim konfirmasi
+                    await client.sendMessage(message.from,
+                        `✅ Pengeluaran dicatat:\n` +
+                        `📝 Item: ${name}\n` +
+                        `📊 Kategori: ${category}\n` +
+                        `💰 Harga: ${price.toLocaleString('id-ID')} IDR\n\n` +
+                        `💡 Tips: Hemat pangkal kaya!`
+                    );
+                }
             } catch (error) {
-                console.error(error);
-                client.sendMessage(message.from, "Terjadi kesalahan saat membuat file Excel.");
+                console.error('Gagal mencatat pengeluaran:', error);
             }
         }
 
-    } else {
-        // Logika untuk pesan pribadi atau lainnya
-        const text = message.body.toLowerCase();
-        const parts = text.split(" ");
-        
+        // Perintah download Excel
+        // Dalam event listener
+        if (text === 'download pengeluaran') {
+            try {
+                const fileName = await generateExcel();
+
+                // Gunakan URL deployment Vercel Anda
+                const downloadUrl = `https://your-vercel-domain.vercel.app/download/${fileName}`;
+
+                await client.sendMessage(message.from,
+                    `📊 Laporan Pengeluaran\n\n` +
+                    `✅ File Excel telah dibuat!\n` +
+                    `🔗 Unduh di: ${downloadUrl}\n\n` +
+                    `💡 Link aktif dalam 1 jam`
+                );
+            } catch (error) {
+                console.error('Gagal membuat Excel:', error);
+                await client.sendMessage(message.from,
+                    '❌ Ups! Gagal membuat laporan. Coba lagi nanti.'
+                );
+            }
+        }
+
+        // Perintah ringkasan pengeluaran
+        if (text.startsWith('ringkasan')) {
+            try {
+                const query = `
+                    SELECT category, 
+                           SUM(price) as total_pengeluaran, 
+                           COUNT(*) as jumlah_transaksi 
+                    FROM expenses 
+                    GROUP BY category 
+                    ORDER BY total_pengeluaran DESC
+                `;
+
+                db.all(query, [], async (err, rows) => {
+                    if (err) {
+                        console.error('Gagal mengambil ringkasan:', err);
+                        return;
+                    }
+
+                    let ringkasanPesan = "📊 Ringkasan Pengeluaran:\n\n";
+                    let totalPengeluaran = 0;
+
+                    rows.forEach(row => {
+                        ringkasanPesan +=
+                            `• ${row.category}: ${row.total_pengeluaran.toLocaleString('id-ID')} IDR ` +
+                            `(${row.jumlah_transaksi} transaksi)\n`;
+                        totalPengeluaran += row.total_pengeluaran;
+                    });
+
+                    ringkasanPesan += `\n💰 Total Pengeluaran: ${totalPengeluaran.toLocaleString('id-ID')} IDR`;
+
+                    await client.sendMessage(message.from, ringkasanPesan);
+                });
+            } catch (error) {
+                console.error('Gagal membuat ringkasan:', error);
+            }
+        }
+    }
+    // Proses pesan pribadi
+    else {
         if (parts.length === 2) {
             const name = parts[0];
-            const price = parsePrice(parts[1]); // Parsing harga dengan fungsi baru
-            
-            if (!isNaN(price) && price > 0) {
-                await addExpense(name, "Lain-lain", price); // Kategori default jika bukan grup
-                await message.reply(`Pengeluaran telah dicatat: ${name}, Harga: ${price} IDR`);
-            } else {
-                await message.reply("Format salah. Kirim 'nama_barang harga'.");
+            try {
+                const price = parsePrice(parts[1]);
+
+                if (!isNaN(price) && price > 0) {
+                    await addExpense(name, 'Lain-lain', price);
+                    await message.reply(
+                        `✅ Pengeluaran pribadi dicatat:\n` +
+                        `📝 Item: ${name}\n` +
+                        `💰 Harga: ${price.toLocaleString('id-ID')} IDR`
+                    );
+                }
+            } catch (error) {
+                console.error('Gagal mencatat pengeluaran pribadi:', error);
             }
         }
     }
 });
 
-// Menjalankan client
-client.initialize();
+// Jalankan server
+const PORT = process.env.PORT || 1234;
+server.listen(PORT, () => {
+    console.log(`Server berjalan di port ${PORT}`);
+});
+
+// Buat direktori session jika belum ada
+const sessionDir = path.join(__dirname, 'session');
+if (!fs.existsSync(sessionDir)) {
+    fs.mkdirSync(sessionDir);
+}
+
+
+// Inisialisasi client WhatsApp
+//client.initialize();
+
+// Inisialisasi client WhatsApp
+try {
+    client.initialize();
+    console.log('Client initialization started');
+} catch (error) {
+    console.error('Initialization error:', error);
+}
+
+// Tangani exit
+process.on('SIGINT', () => {
+    console.log('Menutup koneksi...');
+    client.destroy();
+    process.exit();
+});

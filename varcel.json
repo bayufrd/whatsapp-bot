@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "bot.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/download/(.*)",
+      "dest": "bot.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "bot.js"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production"
+  }
+}
