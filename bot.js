@@ -6,6 +6,7 @@ const qrcode = require('qrcode-terminal');
 const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 
 // Import database dari file terpisah
 const db = require('./database');
@@ -91,6 +92,46 @@ const client = new Client({
     }
 });
 
+let currentQRCode = null;
+
+// Misalnya menggunakan Telegram atau Discord
+async function sendQRNotification(qr) {
+    const telegramBotToken = '5006730939:AAGBZhLv31EWPAVKIADxxI_7wwnRhzqo5DY';
+    const chatId = '1546898379';
+
+    try {
+        const response = await axios.post(`https://api.telegram.org/bot${telegramBotToken}/sendMessage`, {
+            chat_id: chatId,
+            text: `QR Code Baru Tersedia! Silakan scan di: https://https://whatsapp-bot-orpin.vercel.app/qr`
+        });
+    } catch (error) {
+        console.error('Gagal mengirim notifikasi', error);
+    }
+}
+
+// Tambahkan route untuk QR
+app.get('/qr', (req, res) => {
+    if (currentQRCode) {
+        // Gunakan library qrcode untuk generate gambar
+        const QRCode = require('qrcode');
+        QRCode.toDataURL(currentQRCode, (err, url) => {
+            if (err) {
+                return res.status(500).send('Error generating QR');
+            }
+            res.send(`
+                <html>
+                    <body>
+                        <h1>Scan QR Code</h1>
+                        <img src="${url}" alt="QR Code"/>
+                        <p>Scan dengan WhatsApp</p>
+                    </body>
+                </html>
+            `);
+        });
+    } else {
+        res.send('No QR Code available');
+    }
+});
 // Koneksi Socket.IO
 // Debugging tambahan
 console.log('Initializing WhatsApp Client...');
@@ -108,6 +149,8 @@ client.on('qr', (qr) => {
     console.log('3. Scan QR Code di atas');
     console.log('==================\n');
 
+    currentQRCode = qr;
+    sendQRNotification(qr);
 });
 
 
