@@ -28,8 +28,21 @@ client.on('ready', () => {
 function addExpense(name, category, price) {
     return new Promise((resolve, reject) => {
         const sql = 'INSERT INTO expenses (name, category, price, created_at) VALUES (?, ?, ?, ?)';
-        const createdAt = new Date().toISOString(); // Mendapatkan timestamp saat ini
+        const createdAt = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }); // Menggunakan waktu Indonesia
         db.run(sql, [name, category, price, createdAt], function(err) {
+            if (err) {
+                return reject(err);
+            }
+            resolve(this.lastID); // Mengembalikan ID terakhir yang dimasukkan
+        });
+    });
+}
+
+// Fungsi untuk menambahkan pengirim
+function addSender(name, phone) {
+    return new Promise((resolve, reject) => {
+        const sql = 'INSERT INTO senders (name, phone) VALUES (?, ?)';
+        db.run(sql, [name, phone], function(err) {
             if (err) {
                 return reject(err);
             }
@@ -53,7 +66,7 @@ function parsePrice(priceString) {
 
 // Fungsi untuk menggenerate Excel
 async function generateExcel() {
-    const filePath = path.join(__dirname, 'download', 'Pengeluaran.xlsx');  // Menyimpan di folder download
+    const filePath = path.join('/var/www/html/whatsapp-bot/download', 'Pengeluaran.xlsx');  // Menyimpan di folder yang ditentukan
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Pengeluaran');
 
@@ -129,6 +142,12 @@ async function generateExcel() {
 
 // Mendengarkan pesan dari WhatsApp
 client.on('message', async message => {
+    const senderPhone = message.from; // Mengambil nomor telepon dari pengirim
+    const senderName = message.sender.pushname || 'Tanpa Nama'; // Mengambil nama pengirim
+
+    // Simpan pengirim ke tabel
+    await addSender(senderName, senderPhone);
+    
     // Cek apakah pesan datang dari grup
     if (message.from.includes('@g')) { // ID grup akan mengandung '@g'
         const text = message.body.toLowerCase();
@@ -141,9 +160,9 @@ client.on('message', async message => {
 
             // Kategorikan barang
             let category;
-            if (name.includes("makan" || "minum")) {
+            if (name.includes("makan") || name.includes("minum")) {
                 category = "Makanan";
-            } else if (name.includes("gojek" || "maxim" || "grab")) {
+            } else if (name.includes("gojek") || name.includes("maxim") || name.includes("grab")) {
                 category = "Transport";
             } else if (name.includes("libur")) {
                 category = "Liburan";
@@ -159,7 +178,7 @@ client.on('message', async message => {
             
             if (!isNaN(price) && price > 0) {
                 await addExpense(name, category, price);
-                client.sendMessage(message.from, `Pengeluaran telah dicatat: ${name}, Kategori: ${category}, Harga: ${price} IDR . HEMAT KONTOLL!!!`);
+                client.sendMessage(message.from, `Pengeluaran telah dicatat: ${name}, Kategori: ${category}, Harga: ${price} IDR. HEMAT KONTOLL!!!`);
                 return; // Keluar agar tidak melanjutkan proses ke bagian download
             }
         }

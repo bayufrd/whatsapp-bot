@@ -11,6 +11,13 @@ db.serialize(() => {
         price REAL NOT NULL,
         created_at TEXT NOT NULL  -- Menambahkan kolom created_at untuk menyimpan tanggal dan waktu
     )`);
+
+    // Membuat tabel baru untuk menyimpan informasi pengirim
+    db.run(`CREATE TABLE IF NOT EXISTS senders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        phone TEXT NOT NULL
+    )`);
 });
 
 // Menutup koneksi pada saat aplikasi dihentikan

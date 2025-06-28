@@ -35,6 +35,6 @@ app.post('/send-message', async (req, res) => {
 
 // Mulai client WhatsApp dan server API
 client.initialize();
-app.listen(3000, () => {
-    console.log('API server is running on http://localhost:3000');
+app.listen(1234, () => {
+    console.log('API server is running on http://dastrevas');
 });
