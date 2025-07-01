@@ -170,6 +170,15 @@ async function connectToWhatsApp() {
                         console.error('Gagal mencatat pengeluaran:', error);
                     }
                 }
+                if (normalizedText === 'dastrevas' || 'halo' || 'bot' || 'test') {
+                    await sock.sendMessage(message.key.remoteJid, {
+                        text: `🤖 Daftar Perintah Pengeluaran:
+• bantuan bot
+• bantuan pengeluaran
+
+Kirim salah satu perintah di atas untuk melihat caranya.`
+                    });
+                }
                 if (normalizedText === 'bantuan bot') {
                     await sock.sendMessage(message.key.remoteJid, {
                         text: `🤖 Daftar Perintah Pemasukan Data:
@@ -191,6 +200,7 @@ Kirim salah satu perintah di atas untuk mengirim pengeluaran.`
 • pengeluaran hari ini
 • pengeluaran minggu ini
 • pengeluaran bulan ini
+• hapus pengeluaran
 • ringkasan
 
 Kirim salah satu perintah di atas untuk melihat detail pengeluaran.`
@@ -232,7 +242,56 @@ Kirim salah satu perintah di atas untuk melihat detail pengeluaran.`
 
                     await sock.sendMessage(message.key.remoteJid, { text: pesanPengeluaran });
                 }
+                // Command to request deletion of today's expenses
+                if (normalizedText === 'hapus pengeluaran' || normalizedText === 'undo') {
+                    const todayExpenses = await getTodayExpenses();
 
+                    if (todayExpenses.length === 0) {
+                        await sock.sendMessage(message.key.remoteJid, {
+                            text: '📊 Belum ada pengeluaran hari ini.'
+                        });
+                        return;
+                    }
+
+                    // Create list to display to user
+                    let expenseListMessage = '📊 Pengeluaran Hari Ini:\n';
+                    todayExpenses.forEach((expense, index) => {
+                        expenseListMessage += `[${index + 1}] ${expense.name} ${expense.price.toLocaleString('id-ID')} IDR\n`;
+                    });
+
+                    await sock.sendMessage(message.key.remoteJid, {
+                        text: expenseListMessage + 'Silakan pilih nomor pengeluaran yang ingin dihapus.'
+                    });
+                    return; // Wait for the user's selection
+                }
+
+                // Handle the user's selection for deletion
+                if (parts.length === 1 && !isNaN(parts[0])) { // if user sends only a number
+                    const selectedIndex = parseInt(parts[0]) - 1; // Convert to zero-based index
+                    const todayExpenses = await getTodayExpenses(); // Fetch entries again
+
+                    if (todayExpenses[selectedIndex]) {
+                        const selectedExpense = todayExpenses[selectedIndex];
+
+                        try {
+                            // Delete the selected expense from the database
+                            await deleteExpense(selectedExpense.name, selectedExpense.category, selectedExpense.price);
+
+                            await sock.sendMessage(message.key.remoteJid, {
+                                text: `✅ Pengeluaran berhasil dihapus:\n📝 Item: ${selectedExpense.name}\n💰 Harga: ${selectedExpense.price.toLocaleString('id-ID')} IDR`
+                            });
+                        } catch (error) {
+                            console.error('Gagal menghapus pengeluaran:', error);
+                            await sock.sendMessage(message.key.remoteJid, {
+                                text: '❌ Gagal menghapus pengeluaran. Coba lagi nanti.'
+                            });
+                        }
+                    } else {
+                        await sock.sendMessage(message.key.remoteJid, {
+                            text: '❌ Nomor yang Anda pilih tidak valid.'
+                        });
+                    }
+                }
                 // Pengeluaran Bulan Ini
                 if (normalizedText === 'pengeluaran bulan ini') {
                     const monthExpenses = await getThisMonthExpenses();
@@ -273,7 +332,7 @@ Kirim salah satu perintah di atas untuk melihat detail pengeluaran.`
 
                             ringkasanPesan += `\n💰 Total Pengeluaran: ${totalPengeluaran.toLocaleString('id-ID')} IDR`;
 
-                            await client.sendMessage(message.from, ringkasanPesan);
+                            await sock.sendMessage(message.from, ringkasanPesan);
                         });
                     } catch (error) {
                         console.error('Gagal membuat ringkasan:', error);
@@ -313,7 +372,8 @@ function formatDate(date) {
     });
 }
 // Function to get today's expenses
-function getTodayExpenses() {
+// Function to get today's expenses
+async function getTodayExpenses() {
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Set time to start of the day
     const startDate = today.toISOString().split('T')[0]; // Format to YYYY-MM-DD
@@ -322,6 +382,19 @@ function getTodayExpenses() {
     const endDateFormatted = endDate.toISOString().split('T')[0]; // Format to YYYY-MM-DD
 
     return getExpensesByDateRange(startDate, endDateFormatted);
+}
+
+// Function to delete the selected expense
+function deleteExpense(name, category, price) {
+    return new Promise((resolve, reject) => {
+        const sql = `DELETE FROM expenses WHERE name = ? AND category = ? AND price = ?`;
+        db.run(sql, [name, category, price], function (err) {
+            if (err) {
+                return reject(err);
+            }
+            resolve(this.changes); // Return the number of rows deleted
+        });
+    });
 }
 
 // Fungsi untuk mendapatkan pengeluaran berdasarkan rentang waktu
