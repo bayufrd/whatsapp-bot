@@ -171,7 +171,7 @@ async function connectToWhatsApp() {
                         console.error('Gagal mencatat pengeluaran:', error);
                     }
                 }
-                if (normalizedText === 'dastrevas' || 'halo' || 'bot' || 'test') {
+                if (normalizedText === 'dastrevas') {
                     await sock.sendMessage(message.key.remoteJid, {
                         text: `🤖 Daftar Perintah Pengeluaran:
 • bantuan bot
