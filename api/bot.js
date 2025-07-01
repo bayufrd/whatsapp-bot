@@ -9,6 +9,7 @@ const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const { format, zonedTimeToUtc } = require('date-fns-tz');
 
 // Import database dari file terpisah
 const db = require('../api/database');
@@ -265,6 +266,16 @@ Kirim salah satu perintah di atas untuk melihat detail pengeluaran.`
                     return; // Wait for the user's selection
                 }
 
+                // Pengeluaran Bulan Ini
+                if (normalizedText === 'pengeluaran bulan ini') {
+                    const monthExpenses = await getThisMonthExpenses();
+                    const pesanPengeluaran = createExpenseMessage(
+                        monthExpenses,
+                        'Pengeluaran Bulan Ini'
+                    );
+
+                    await sock.sendMessage(message.key.remoteJid, { text: pesanPengeluaran });
+                }
                 // Handle the user's selection for deletion
                 if (parts.length === 1 && !isNaN(parts[0])) { // if user sends only a number
                     const selectedIndex = parseInt(parts[0]) - 1; // Convert to zero-based index
@@ -291,16 +302,6 @@ Kirim salah satu perintah di atas untuk melihat detail pengeluaran.`
                             text: '❌ Nomor yang Anda pilih tidak valid.'
                         });
                     }
-                }
-                // Pengeluaran Bulan Ini
-                if (normalizedText === 'pengeluaran bulan ini') {
-                    const monthExpenses = await getThisMonthExpenses();
-                    const pesanPengeluaran = createExpenseMessage(
-                        monthExpenses,
-                        'Pengeluaran Bulan Ini'
-                    );
-
-                    await sock.sendMessage(message.key.remoteJid, { text: pesanPengeluaran });
                 }
                 // Perintah ringkasan pengeluaran
                 if (text.startsWith('ringkasan')) {
@@ -371,17 +372,23 @@ function formatDate(date) {
         day: '2-digit'
     });
 }
-// Function to get today's expenses
-// Function to get today's expenses
 async function getTodayExpenses() {
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Set time to start of the day
-    const startDate = today.toISOString().split('T')[0]; // Format to YYYY-MM-DD
-    const endDate = new Date(today);
-    endDate.setHours(23, 59, 59, 999); // Set time to the end of the day
-    const endDateFormatted = endDate.toISOString().split('T')[0]; // Format to YYYY-MM-DD
+    const startDate = today.toISOString().split('T')[0]; // YYYY-MM-DD
+    const endDate = today.toISOString().split('T')[0]; // YYYY-MM-DD
 
-    return getExpensesByDateRange(startDate, endDateFormatted);
+    return getExpensesByDateRange(startDate, endDate);
+}
+
+async function getThisMonthExpenses() {
+    const today = new Date();
+    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+    return getExpensesByDateRange(
+        firstDayOfMonth.toISOString().split('T')[0], // Start Date
+        lastDayOfMonth.toISOString().split('T')[0]   // End Date
+    );
 }
 
 // Function to delete the selected expense
@@ -397,8 +404,8 @@ function deleteExpense(name, category, price) {
     });
 }
 
-// Fungsi untuk mendapatkan pengeluaran berdasarkan rentang waktu
 function getExpensesByDateRange(startDate, endDate) {
+    console.log('Querying expenses from', startDate, 'to', endDate); // Log dates for debugging
     return new Promise((resolve, reject) => {
         const query = `
             SELECT name, category, price, created_at
@@ -412,53 +419,41 @@ function getExpensesByDateRange(startDate, endDate) {
                 console.error('Gagal mengambil pengeluaran:', err);
                 return reject(err);
             }
+            console.log('Expenses found:', rows); // Log result for debugging
             resolve(rows);
         });
     });
 }
 
-// Fungsi untuk mendapatkan pengeluaran minggu ini
-function getThisWeekExpenses() {
+async function getThisWeekExpenses() {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0); // Set time to the start of the day
 
-    // Dapatkan hari pertama minggu ini (Senin)
+    // Get the first day of the week (Monday)
     const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - today.getDay() + 1);
+    startOfWeek.setDate(today.getDate() - (today.getDay() + 6) % 7); // Adjust so Monday is the first day of the week
 
-    // Dapatkan hari terakhir minggu ini (Minggu)
+    // Get the last day of the week (Sunday)
     const endOfWeek = new Date(today);
-    endOfWeek.setDate(today.getDate() + (7 - today.getDay()));
+    endOfWeek.setDate(today.getDate() + (7 - today.getDay())); // Adjust so Sunday is the last day of the week
 
     return getExpensesByDateRange(
-        startOfWeek.toISOString().split('T')[0],
-        endOfWeek.toISOString().split('T')[0]
+        startOfWeek.toISOString().split('T')[0], // Start Date
+        endOfWeek.toISOString().split('T')[0]    // End Date
     );
 }
 
-// Fungsi untuk mendapatkan pengeluaran bulan ini
-function getThisMonthExpenses() {
-    const today = new Date();
-    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-
-    return getExpensesByDateRange(
-        firstDayOfMonth.toISOString().split('T')[0],
-        lastDayOfMonth.toISOString().split('T')[0]
-    );
-}
-
-// Fungsi untuk membuat pesan pengeluaran
+// Function to create the expense message
 function createExpenseMessage(expenses, title) {
     if (expenses.length === 0) {
         return `📊 ${title}\n\nBelum ada pengeluaran.`;
     }
 
+    // Calculate total spending
     const totalPengeluaran = expenses.reduce((total, expense) => total + expense.price, 0);
-
     let pesanPengeluaran = `📊 ${title}\n\n`;
 
-    // Kelompokkan berdasarkan kategori
+    // Group expenses by category
     const categoryTotals = {};
     expenses.forEach(expense => {
         if (!categoryTotals[expense.category]) {
@@ -473,23 +468,17 @@ function createExpenseMessage(expenses, title) {
         categoryTotals[expense.category].items.push(expense);
     });
 
-    // Urutkan kategori berdasarkan total pengeluaran
+    // Sort categories by total spending
     const sortedCategories = Object.entries(categoryTotals)
         .sort((a, b) => b[1].total - a[1].total);
 
-    // Buat pesan dengan detail kategori
+    // Construct message with category details
     sortedCategories.forEach(([category, data]) => {
         pesanPengeluaran += `• ${category}: ${data.total.toLocaleString('id-ID')} IDR ` +
-            `(${data.count} transaksi)\n`;
-
-        // Optional: Tampilkan detail item dalam kategori
-        // data.items.forEach(item => {
-        //     pesanPengeluaran += `  - ${item.name}: ${item.price.toLocaleString('id-ID')} IDR\n`;
-        // });
+                            `(${data.count} transaksi)\n`;
     });
 
     pesanPengeluaran += `\n💰 Total Pengeluaran: ${totalPengeluaran.toLocaleString('id-ID')} IDR`;
-
     return pesanPengeluaran;
 }
 
@@ -650,7 +639,7 @@ console.log('Initializing WhatsApp Client...');
 function addExpense(name, category, price) {
     return new Promise((resolve, reject) => {
         const sql = 'INSERT INTO expenses (name, category, price, created_at) VALUES (?, ?, ?, ?)';
-        const createdAt = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+        const createdAt = new Date().toISOString();  // Store date in ISO format
         db.run(sql, [name, category, price, createdAt], function (err) {
             if (err) {
                 return reject(err);
@@ -733,10 +722,13 @@ async function generateExcel() {
 
             let totalPengeluaran = 0;
 
-            // Tambahkan data
+            // Tambahkan data dengan konversi waktu
             rows.forEach(exp => {
+                const utcDate = new Date(exp.created_at); // konversi dari string ke objek Date
+                const jakartaDate = format(zonedTimeToUtc(utcDate, 'Asia/Jakarta'), 'PPPPpp', { timeZone: 'Asia/Jakarta' }); // konversi ke timezone Jakarta
+
                 worksheet.addRow({
-                    created_at: exp.created_at,
+                    created_at: jakartaDate,   // Ganti tanggal dengan yang sudah dikonversi
                     name: exp.name,
                     category: exp.category,
                     price: exp.price
