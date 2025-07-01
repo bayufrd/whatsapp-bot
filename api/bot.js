@@ -724,28 +724,37 @@ async function generateExcel() {
 
             // Tambahkan data dengan konversi waktu
             rows.forEach(exp => {
-                const utcDate = new Date(exp.created_at); // konversi dari string ke objek Date
-                const jakartaDate = formatInTimeZone(utcDate, 'Asia/Jakarta', 'PPPPpp'); // Menggunakan formatInTimeZone
-            
+                const utcDate = new Date(exp.created_at); // ubah dari string ke objek Date
+
+                // Cek apakah utcDate valid
+                if (isNaN(utcDate.getTime())) {
+                    console.error(`Invalid date found for expense: ${exp.created_at}`);
+                    return; // Jika tanggal tidak valid, lewati row ini
+                }
+
+                // Format tanggal ke zona waktu Jakarta
+                const jakartaDate = formatInTimeZone(utcDate, 'Asia/Jakarta', 'PPPPpp');
+                
+                // Tambah row ke worksheet
                 worksheet.addRow({
-                    created_at: jakartaDate,   // Ganti tanggal dengan yang sudah dikonversi
+                    created_at: jakartaDate,  // Ganti tanggal dengan yang sudah dikonversi
                     name: exp.name,
                     category: exp.category,
                     price: exp.price
                 });
-                totalPengeluaran += exp.price;
+                totalPengeluaran += exp.price; // Tambahkan ke total pengeluaran
             });
 
-            // Tambahkan total
+            // Tambahkan total pengeluaran sebagai baris baru
             worksheet.addRow({
                 name: 'TOTAL PENGELUARAN',
-                price: totalPengeluaran
+                price: totalPengeluaran // Menggunakan total
             });
 
             // Styling
-            worksheet.getRow(1).font = { bold: true };
+            worksheet.getRow(1).font = { bold: true }; // Bold pada header
             worksheet.columns.forEach(column => {
-                column.alignment = { horizontal: 'left' };
+                column.alignment = { horizontal: 'left' }; // Rata kiri untuk semua kolom
             });
 
             // Tulis file
