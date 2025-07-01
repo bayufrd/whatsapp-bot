@@ -9,7 +9,7 @@ const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const { format, zonedTimeToUtc } = require('date-fns-tz');
+const { format, formatInTimeZone } = require('date-fns-tz');
 
 // Import database dari file terpisah
 const db = require('../api/database');
@@ -725,8 +725,8 @@ async function generateExcel() {
             // Tambahkan data dengan konversi waktu
             rows.forEach(exp => {
                 const utcDate = new Date(exp.created_at); // konversi dari string ke objek Date
-                const jakartaDate = format(zonedTimeToUtc(utcDate, 'Asia/Jakarta'), 'PPPPpp', { timeZone: 'Asia/Jakarta' }); // konversi ke timezone Jakarta
-
+                const jakartaDate = formatInTimeZone(utcDate, 'Asia/Jakarta', 'PPPPpp'); // Menggunakan formatInTimeZone
+            
                 worksheet.addRow({
                     created_at: jakartaDate,   // Ganti tanggal dengan yang sudah dikonversi
                     name: exp.name,
