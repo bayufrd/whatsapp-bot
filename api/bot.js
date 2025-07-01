@@ -18,8 +18,8 @@ const app = express();
 const server = http.createServer(app);
 
 // Konfigurasi direktori
-const PUBLIC_DIR = path.join(__dirname, 'public');
-const DOWNLOAD_DIR = path.join('/var/www/html/whatsapp-bot/download');
+const PUBLIC_DIR = path.join(__dirname, '../public');
+const DOWNLOAD_DIR = path.join('../download');
 
 // Buat direktori jika belum ada
 fs.mkdirSync(PUBLIC_DIR, { recursive: true });
