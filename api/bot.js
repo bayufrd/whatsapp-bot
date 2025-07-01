@@ -19,7 +19,7 @@ const server = http.createServer(app);
 
 // Konfigurasi direktori
 const PUBLIC_DIR = path.join(__dirname, '../public');
-const DOWNLOAD_DIR = path.join('../download');
+const DOWNLOAD_DIR = path.join('/var/www/html/whatsapp-bot/download');
 
 // Buat direktori jika belum ada
 fs.mkdirSync(PUBLIC_DIR, { recursive: true });
@@ -311,6 +311,17 @@ function formatDate(date) {
         month: '2-digit',
         day: '2-digit'
     });
+}
+// Function to get today's expenses
+function getTodayExpenses() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Set time to start of the day
+    const startDate = today.toISOString().split('T')[0]; // Format to YYYY-MM-DD
+    const endDate = new Date(today);
+    endDate.setHours(23, 59, 59, 999); // Set time to the end of the day
+    const endDateFormatted = endDate.toISOString().split('T')[0]; // Format to YYYY-MM-DD
+
+    return getExpensesByDateRange(startDate, endDateFormatted);
 }
 
 // Fungsi untuk mendapatkan pengeluaran berdasarkan rentang waktu
