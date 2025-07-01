@@ -66,7 +66,7 @@ async function connectToWhatsApp() {
         auth: state,
         crypto: cryptoProvider, // Gunakan provider crypto yang didefinisikan
         browser: ['WhatsApp Bot', 'Chrome', '20.0'],
-        connectTimeoutMs: 60000, // Perpanjang timeout
+        connectTimeoutMs: 10000, // Perpanjang timeout
         keepAliveIntervalMs: 30000, // Pertahankan koneksi
         generateHighQualityLinkPreview: true,
         syncFullHistory: false,
