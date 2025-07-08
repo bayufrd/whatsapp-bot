@@ -186,9 +186,11 @@ Kirim salah satu perintah di atas untuk melihat caranya.`
 • Category Makan Minum : makan harga | minum harga (ex: makan_nasgor 12rb, minum_jus 20rb)
 • Category Sahabat Sebat : rokok harga (ex: rokok_liquid 35rb)
 • Category Transport : maxim harga | gojek harga | grab harga | bensin harga (ex: gojek_kekantor 20rb, bensin 10rb)
-• Category Entertaiment : internet harga (ex: ineternet_kuota 25rb, internet_viu 50rb)
-• Category Komunikasi : kuota harga | pulsa harga (ex: pulsa 20rb, kuota 10rb)
+• Category Komunikasi : kuota harga | pulsa harga | internet harga (ex: pulsa 20rb, kuota 10rb)
 • Category Listrik : token harga (ex: token_pln 20rb, token 10rb)
+• Category Fashion : fashion harga (ex: fashion_baju 20rb)
+• Category Grocery : grocery harga (ex: grocery_tisu 20rb)
+• Category Anak : anak harga (ex: anak_makan 20rb, anak_pasir 10rb)
 • Category Lain-lain : apapun harga (ex: sumbangan 20rb, sedekah 10rb)
 
 Kirim salah satu perintah di atas untuk mengirim pengeluaran.`
