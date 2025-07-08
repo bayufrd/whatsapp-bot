@@ -687,9 +687,12 @@ function determineCategory(name) {
         'token': 'Token Listrik',
         'listrik': 'Token Listrik',
         'rokok': 'Sahabat Sebat',
-        'internet': 'Entertaiment',
+        'internet': 'Komunikasi',
         'pulsa': 'Komunikasi',
-        'kuota': 'Komunikasi'
+        'kuota': 'Komunikasi',
+        'grocery': 'Grocery Sehari hari',
+        'fashion': 'Fashion dan Cosmetic',
+        'anak': 'Kebutuhan Anak'
     };
 
     for (const [keyword, category] of Object.entries(categoryMap)) {
