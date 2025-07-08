@@ -1,0 +1,8 @@
+node_modules
+api/baileys_auth
+api/public
+api/session
+api/session_new
+expenses.db
+logs/*
+download/*

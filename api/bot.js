@@ -625,6 +625,7 @@ app.get('/', (req, res) => {
                                 <form action="/reset" method="get">
                                     <button type="submit" class="btn btn-danger">Reset Cache and Restart</button>
                                 </form>
+                                <p>------------logs------------</p>
                                 <div id="logContainer"></div>
                             </div>
                         </div>
