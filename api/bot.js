@@ -1,15 +1,16 @@
 // bot.js
+const { Server } = require('socket.io');
 const crypto = require('crypto');
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const express = require('express');
 const http = require('http');
-// const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const ExcelJS = require('exceljs');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const { format, formatInTimeZone } = require('date-fns-tz');
+const { exec } = require('child_process');
 
 // Import database dari file terpisah
 const db = require('../api/database');
@@ -18,14 +19,31 @@ const db = require('../api/database');
 const app = express();
 const server = http.createServer(app);
 
-// Konfigurasi direktori
+const io = new Server(server); // Initialize Socket.IO with the server
+// Configure directories
 const PUBLIC_DIR = path.join(__dirname, '../public');
-const DOWNLOAD_DIR = path.join('/var/www/html/whatsapp-bot/download');
+const DOWNLOAD_DIR = path.join(__dirname, '../download');
+const LOGFILEPATH_DIR = path.join(__dirname, '../logs/server.log');
 
-// Buat direktori jika belum ada
+// Create required directories if they do not exist
 fs.mkdirSync(PUBLIC_DIR, { recursive: true });
 fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 
+// Create logs directory if it does not exist
+const logsDirectory = path.dirname(LOGFILEPATH_DIR);
+fs.mkdirSync(logsDirectory, { recursive: true }); // Ensure logs directory exists
+
+// Check if the log file exists; if it's a directory, report an error
+if (fs.existsSync(LOGFILEPATH_DIR)) {
+    const stats = fs.lstatSync(LOGFILEPATH_DIR);
+    if (stats.isDirectory()) {
+        console.error(`A directory exists at log file path: ${LOGFILEPATH_DIR}. Please remove it.`);
+        process.exit(1); // Exit the application as it cannot proceed
+    }
+} else {
+    // Create the log file if it does not exist
+    fs.writeFileSync(LOGFILEPATH_DIR, ''); // Create the log file as empty
+}
 let reconnectAttempts = 0
 const MAX_RECONNECT_ATTEMPTS = 5
 
@@ -38,7 +56,7 @@ async function initializeWhatsApp() {
         reconnectAttempts++
 
         if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
-            console.log(`Reconnect attempt ${reconnectAttempts}`)
+            logToClients(`Reconnect attempt ${reconnectAttempts}`)
             await new Promise(resolve => setTimeout(resolve, 5000))
             return initializeWhatsApp()
         } else {
@@ -50,7 +68,7 @@ async function initializeWhatsApp() {
 
 // Fungsi utama untuk koneksi WhatsApp
 async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('baileys_auth');
+    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
     const { version } = await fetchLatestBaileysVersion();
 
     // Eksplisit definisikan crypto provider
@@ -80,18 +98,18 @@ async function connectToWhatsApp() {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
-            console.log('QR Code Generated');
-            console.log('\n===== QR CODE =====');
-            console.log('Scan QR Code di bawah ini:');
+            logToClients('QR Code Generated');
+            logToClients('\n===== QR CODE =====');
+            logToClients('Scan QR Code di bawah ini:');
 
             // Pastikan qrcode sudah di-import
             require('qrcode-terminal').generate(qr, { small: true });
 
-            console.log('\nCaranya:');
-            console.log('1. Buka WhatsApp di HP');
-            console.log('2. Pilih Setelan > Sambungkan Perangkat');
-            console.log('3. Scan QR Code di atas');
-            console.log('==================\n');
+            logToClients('\nCaranya:');
+            logToClients('1. Buka WhatsApp di HP');
+            logToClients('2. Pilih Setelan > Sambungkan Perangkat');
+            logToClients('3. Scan QR Code di atas');
+            logToClients('==================\n');
 
             // Simpan QR Code jika ingin digunakan di route web
             currentQRCode = qr;
@@ -110,16 +128,16 @@ async function connectToWhatsApp() {
             // Gunakan switch untuk lebih rapi
             switch (status) {
                 case DisconnectReason.loggedOut:
-                    console.log('Device Logged Out, Reconnecting...');
+                    logToClients('Device Logged Out, Reconnecting...');
                     break;
                 case DisconnectReason.connectionReplaced:
-                    console.log('Connection Replaced, Reconnecting...');
+                    logToClients('Connection Replaced, Reconnecting...');
                     break;
                 case DisconnectReason.connectionLost:
-                    console.log('Connection Lost, Reconnecting...');
+                    logToClients('Connection Lost, Reconnecting...');
                     break;
                 default:
-                    console.log('Connection Closed. Reconnecting...', lastDisconnect?.error);
+                    logToClients('Connection Closed. Reconnecting...', lastDisconnect?.error);
             }
 
             // Coba reconnect
@@ -127,7 +145,7 @@ async function connectToWhatsApp() {
         }
 
         if (connection === 'open') {
-            console.log('Koneksi Berhasil Terhubung');
+            logToClients('Koneksi Berhasil Terhubung');
         }
     });
     //nsial
@@ -407,7 +425,7 @@ function deleteExpense(name, category, price) {
 }
 
 function getExpensesByDateRange(startDate, endDate) {
-    console.log('Querying expenses from', startDate, 'to', endDate); // Log dates for debugging
+    logToClients('Querying expenses from', startDate, 'to', endDate); // Log dates for debugging
     return new Promise((resolve, reject) => {
         const query = `
             SELECT name, category, price, created_at
@@ -421,7 +439,7 @@ function getExpensesByDateRange(startDate, endDate) {
                 console.error('Gagal mengambil pengeluaran:', err);
                 return reject(err);
             }
-            console.log('Expenses found:', rows); // Log result for debugging
+            logToClients('Expenses found:', rows); // Log result for debugging
             resolve(rows);
         });
     });
@@ -477,7 +495,7 @@ function createExpenseMessage(expenses, title) {
     // Construct message with category details
     sortedCategories.forEach(([category, data]) => {
         pesanPengeluaran += `• ${category}: ${data.total.toLocaleString('id-ID')} IDR ` +
-                            `(${data.count} transaksi)\n`;
+            `(${data.count} transaksi)\n`;
     });
 
     pesanPengeluaran += `\n💰 Total Pengeluaran: ${totalPengeluaran.toLocaleString('id-ID')} IDR`;
@@ -486,11 +504,6 @@ function createExpenseMessage(expenses, title) {
 
 // Serve static files
 app.use(express.static(PUBLIC_DIR));
-
-// Route untuk halaman QR
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'qr.html'));
-});
 
 // Route untuk download Excel
 app.get('/download/:filename', (req, res) => {
@@ -533,7 +546,7 @@ const possibleBrowserPaths = [
 function findBrowserPath() {
     for (const browserPath of possibleBrowserPaths) {
         if (fs.existsSync(browserPath)) {
-            console.log(`Browser found: ${browserPath}`);
+            logToClients(`Browser found: ${browserPath}`);
             return browserPath;
         }
     }
@@ -580,9 +593,8 @@ async function sendQRNotification(qr) {
 }
 
 // Tambahkan route untuk QR
-app.get('/qr', (req, res) => {
+app.get('/', (req, res) => {
     if (currentQRCode) {
-        // Gunakan library qrcode untuk generate gambar
         const QRCode = require('qrcode');
         QRCode.toDataURL(currentQRCode, (err, url) => {
             if (err) {
@@ -590,34 +602,216 @@ app.get('/qr', (req, res) => {
             }
             res.send(`
                 <html>
-                    <body>
-                        <h1>Scan QR Code</h1>
-                        <img src="${url}" alt="QR Code"/>
-                        <p>Scan dengan WhatsApp</p>
+                    <head>
+                        <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+                        <title>Scan QR Code</title>
+                        <style>
+                            #logContainer {
+                                height: 300px;
+                                overflow-y: scroll;
+                                border: 1px solid #ccc;
+                                padding: 10px;
+                                background: #f9f9f9;
+                            }
+                        </style>
+                    </head>
+                    <body class="bg-light">
+                        <div class="container mt-5">
+                            <h1 class="text-center">Scan QR Code</h1>
+                            <div class="text-center">
+                                <img src="${url}" alt="QR Code" class="img-fluid" style="max-width: 300px;"/>
+                                <p>Scan dengan WhatsApp</p>
+                                <p>------------Atau------------</p>
+                                <form action="/reset" method="get">
+                                    <button type="submit" class="btn btn-danger">Reset Cache and Restart</button>
+                                </form>
+                                <div id="logContainer"></div>
+                            </div>
+                        </div>
+
+                        <script src="/socket.io/socket.io.js"></script>
+                        <script>
+                            const socket = io();
+                            const logContainer = document.getElementById('logContainer');
+
+                            // Fetch existing logs on page load
+                            fetch('/logs')
+                                .then(response => response.json())
+                                .then(logs => {
+                                    logs.forEach(log => {
+                                        const logElement = document.createElement('div');
+                                        logElement.textContent = log;
+                                        logContainer.appendChild(logElement);
+                                    });
+                                    // Auto-scroll to the bottom after loading existing logs
+                                    logContainer.scrollTop = logContainer.scrollHeight;
+                                });
+
+                            // Listen for new log messages from the server
+                            socket.on('log', function(message) {
+                                const logElement = document.createElement('div');
+                                logElement.textContent = message;
+                                logContainer.appendChild(logElement);
+                                // Auto-scroll to the bottom when a new log is added
+                                logContainer.scrollTop = logContainer.scrollHeight;
+                            });
+                        </script>
                     </body>
                 </html>
             `);
         });
     } else {
-        res.send('No QR Code available');
+        res.send(`
+            <html>
+                <head>
+                    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+                    <title>Error QR Code</title>
+                    <style>
+                        #logContainer {
+                            height: 300px;
+                            overflow-y: scroll;
+                            border: 1px solid #ccc;
+                            padding: 10px;
+                            background: #f9f9f9;
+                        }
+                    </style>
+                </head>
+                <body class="bg-light">
+                    <div class="container mt-5">
+                        <div class="text-center">
+                            <p>NO QR CODE AVAILABLE, TRY RESET CACHE</p>
+                            <div id="logContainer"></div>
+                            <form action="/reset" method="get">
+                                <button type="submit" class="btn btn-danger">Reset Cache and Restart</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <script src="/socket.io/socket.io.js"></script>
+                    <script>
+                        const socket = io();
+                        const logContainer = document.getElementById('logContainer');
+
+                        // Fetch existing logs on page load
+                        fetch('/logs')
+                            .then(response => response.json())
+                            .then(logs => {
+                                logs.forEach(log => {
+                                    const logElement = document.createElement('div');
+                                    logElement.textContent = log;
+                                    logContainer.appendChild(logElement);
+                                });
+                                // Auto-scroll to the bottom after loading existing logs
+                                logContainer.scrollTop = logContainer.scrollHeight;
+                            });
+
+                        // Listen for new log messages from the server
+                        socket.on('log', function(message) {
+                            const logElement = document.createElement('div');
+                            logElement.textContent = message;
+                            logContainer.appendChild(logElement);
+                            // Auto-scroll to the bottom when a new log is added
+                            logContainer.scrollTop = logContainer.scrollHeight;
+                        });
+                    </script>
+                </body>
+            </html>
+        `);
     }
 });
+
+// Main route for reset functionality
+app.get('/reset', async (req, res) => {
+    let message = '';
+    let success = true; // Variable to track success/failure
+
+    try {
+        // First attempt to delete the directories
+        deleteDirectory(sessionDir);
+        deleteDirectory(PUBLIC_DIR);
+        message = 'Cache has been cleared successfully!';
+    } catch (error) {
+        success = false; // Update success status if an error occurs
+        message = 'There was a problem clearing the cache. Trying with sudo...' + error;
+        console.error(error); // Log the error for debugging
+
+        // Attempt to delete using sudo as a fallback
+        try {
+            await deleteDirectoryWithSudo(sessionDir);
+            await deleteDirectoryWithSudo(PUBLIC_DIR);
+            message = 'Cache has been cleared successfully using sudo!';
+            success = true; // Mark success if sudo deletion worked
+        } catch (sudoError) {
+            success = false; // Update success status if sudo also fails
+            message = 'Failed to clear cache with sudo as well. Please check permissions.';
+            console.error(sudoError); // Log the sudo error
+        }
+    }
+
+    // Render the response with the success or failure message
+    res.send(`
+        <html>
+            <head>
+                <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+                <title>Reset Cache</title>
+            </head>
+            <body class="bg-light">
+                <div class="container mt-5">
+                    <h1 class="text-center">${success ? 'Success!' : 'Error!'}</h1>
+                    <p class="text-center">${message}</p>
+                    <div class="text-center">
+                        <img src="${success ? 'https://img.icons8.com/emoji/96/okay-hand-emoji.png' : 'https://img.icons8.com/emoji/96/cross-mark-emoji.png'}" alt="${success ? 'Success' : 'Error'}" style="max-width: 100px;"/>
+                    </div>
+                    <p class="text-center">Redirecting you back to the home page shortly...</p>
+                    
+                    <script>
+                        setTimeout(() => { window.location.href = '/'; }, 3000); // Redirect after 3 seconds
+                    </script>
+                </div>
+            </body>
+        </html>
+    `);
+});
+
+
+// Function to delete a directory
+const deleteDirectory = (dirPath) => {
+    if (fs.existsSync(dirPath)) {
+        fs.rmSync(dirPath, { recursive: true, force: true }); // changing rmdir to rm
+        logToClients(`Deleted directory: ${dirPath}`);
+    } else {
+        logToClients(`Directory not found: ${dirPath}`);
+    }
+};
+
+// Function to delete a directory using sudo
+const deleteDirectoryWithSudo = (dirPath) => {
+    return new Promise((resolve, reject) => {
+        exec(`sudo rm -rf "${dirPath}"`, (error, stdout, stderr) => {
+            if (error) {
+                console.error(`Error deleting directory with sudo: ${stderr}`);
+                return reject(error);
+            }
+            resolve(stdout);
+        });
+    });
+};
 // Koneksi Socket.IO
 // Debugging tambahan
-console.log('Initializing WhatsApp Client...');
+logToClients('Initializing WhatsApp Client...');
 // // Event untuk QR Code
 // client.on('qr', (qr) => {
-//     console.log('\n===== QR CODE =====');
-//     console.log('Scan QR Code di bawah ini:');
+//     logToClients('\n===== QR CODE =====');
+//     logToClients('Scan QR Code di bawah ini:');
 
 //     // Tampilkan QR di terminal
 //     qrcode.generate(qr, { small: true });
 
-//     console.log('\nCaranya:');
-//     console.log('1. Buka WhatsApp di HP');
-//     console.log('2. Pilih Setelan > Sambungkan Perangkat');
-//     console.log('3. Scan QR Code di atas');
-//     console.log('==================\n');
+//     logToClients('\nCaranya:');
+//     logToClients('1. Buka WhatsApp di HP');
+//     logToClients('2. Pilih Setelan > Sambungkan Perangkat');
+//     logToClients('3. Scan QR Code di atas');
+//     logToClients('==================\n');
 
 //     currentQRCode = qr;
 //     sendQRNotification(qr);
@@ -627,7 +821,7 @@ console.log('Initializing WhatsApp Client...');
 
 // // Event autentikasi
 // client.on('authenticated', (session) => {
-//     console.log('✅ Autentikasi berhasil');
+//     logToClients('✅ Autentikasi berhasil');
 // });
 
 // // Event error
@@ -739,7 +933,7 @@ async function generateExcel() {
 
                 // Format tanggal ke zona waktu Jakarta
                 const jakartaDate = formatInTimeZone(utcDate, 'Asia/Jakarta', 'PPPPpp');
-                
+
                 // Tambah row ke worksheet
                 worksheet.addRow({
                     created_at: jakartaDate,  // Ganti tanggal dengan yang sudah dikonversi
@@ -904,7 +1098,7 @@ async function generateExcel() {
 // Jalankan server dan koneksi WhatsApp
 const PORT = process.env.PORT || 1234;
 server.listen(PORT, async () => {
-    console.log(`Server berjalan di port ${PORT}`);
+    logToClients(`Server berjalan di port ${PORT}`);
 
     try {
         const sock = await initializeWhatsApp();
@@ -917,12 +1111,29 @@ server.listen(PORT, async () => {
 });
 
 // Buat direktori session jika belum ada
-const sessionDir = path.join(__dirname, 'session');
+const sessionDir = path.join(__dirname, '../session');
 if (!fs.existsSync(sessionDir)) {
     fs.mkdirSync(sessionDir);
 }
+// Route to fetch logs
+app.get('/logs', (req, res) => {
+    fs.readFile(LOGFILEPATH_DIR, 'utf8', (err, data) => {
+        if (err) {
+            return res.status(500).send('Error reading log file');
+        }
+        res.send(data.split('\n').filter(Boolean)); // Split logs by line and filter empty lines
+    });
+});
+// Emit logs to connected clients and save to file
+function logToClients(message) {
+    console.log(message); // Log to console
 
+    // Append the log message to the log file
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(LOGFILEPATH_DIR, `${timestamp} - ${message}\n`, 'utf8');
 
+    io.emit('log', message); // Emit log message to clients
+}
 // Inisialisasi client WhatsApp
 //client.initialize();
 
