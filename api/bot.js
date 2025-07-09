@@ -400,11 +400,14 @@ Kirim salah satu perintah di atas untuk melihat detail pengeluaran.`
 }
 // Fungsi untuk mendapatkan tanggal dalam format yang sesuai
 function formatDate(date) {
-    return date.toLocaleDateString('id-ID', {
-        timeZone: 'Asia/Jakarta',
+    return date.toLocaleString('id-ID', {
+        timeZone: 'Asia/Jakarta', // Set timezone
         year: 'numeric',
         month: '2-digit',
-        day: '2-digit'
+        day: '2-digit',
+        hour: '2-digit',          // Include hours
+        minute: '2-digit',        // Include minutes
+        hour12: false             // 24-hour format
     });
 }
 async function getTodayExpenses() {
@@ -447,11 +450,11 @@ function createDetailedExpenseMessage(expenses, title) {
 
     expenses.forEach(exp => {
         const createdAt = new Date(exp.created_at);
-        const formattedTime = formatDate(createdAt); // Format the time to Indonesian timezone
+        const formattedTime = formatDate(createdAt); // Now includes time
 
         detailMessage += `📝 Item: ${exp.name}\n` +
-                        `💰 Harga: ${exp.price.toLocaleString('id-ID')} IDR\n` +
-                        `⏰ Waktu: ${formattedTime}\n\n`;
+                         `💰 Harga: ${exp.price.toLocaleString('id-ID')} IDR\n` +
+                         `⏰ Waktu: ${formattedTime}\n\n`;
     });
 
     return detailMessage;
