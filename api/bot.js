@@ -221,6 +221,8 @@ Kirim salah satu perintah di atas untuk mengirim pengeluaran.`
 • pengeluaran hari ini
 • pengeluaran minggu ini
 • pengeluaran bulan ini
+• detail pengeluaran hari ini
+• detail pengeluaran minggu ini
 • hapus pengeluaran
 • ringkasan
 
