@@ -323,6 +323,19 @@ Kirim salah satu perintah di atas untuk melihat detail pengeluaran.`
                         });
                     }
                 }
+                if (normalizedText === 'detail pengeluaran hari ini') {
+                    const todayExpenses = await getTodayExpenses(); // Fetch today's expenses
+                    const detailMessage = createDetailedExpenseMessage(todayExpenses, `Detail Pengeluaran Hari Ini (${formatDate(new Date())})`);
+
+                    await sock.sendMessage(message.key.remoteJid, { text: detailMessage });
+                }
+
+                if (normalizedText === 'detail pengeluaran minggu ini') {
+                    const weekExpenses = await getThisWeekExpenses(); // Fetch this week's expenses
+                    const detailMessage = createDetailedExpenseMessage(weekExpenses, `Detail Pengeluaran Minggu Ini`);
+
+                    await sock.sendMessage(message.key.remoteJid, { text: detailMessage });
+                }
                 // Perintah ringkasan pengeluaran
                 if (text.startsWith('ringkasan')) {
                     try {
@@ -423,7 +436,24 @@ function deleteExpense(name, category, price) {
         });
     });
 }
+function createDetailedExpenseMessage(expenses, title) {
+    if (expenses.length === 0) {
+        return `📊 ${title}\n\nBelum ada pengeluaran.`;
+    }
 
+    let detailMessage = `📊 ${title}\n\n`;
+
+    expenses.forEach(exp => {
+        const createdAt = new Date(exp.created_at);
+        const formattedTime = formatDate(createdAt); // Format the time to Indonesian timezone
+
+        detailMessage += `📝 Item: ${exp.name}\n` +
+                        `💰 Harga: ${exp.price.toLocaleString('id-ID')} IDR\n` +
+                        `⏰ Waktu: ${formattedTime}\n\n`;
+    });
+
+    return detailMessage;
+}
 function getExpensesByDateRange(startDate, endDate) {
     logToClients('Querying expenses from', startDate, 'to', endDate); // Log dates for debugging
     return new Promise((resolve, reject) => {
